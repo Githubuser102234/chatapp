@@ -9,6 +9,7 @@
       margin: 0;
       font-family: Arial, sans-serif;
       background: #f2f2f2;
+      position: relative;
     }
     .chat-container {
       max-width: 600px;
@@ -51,6 +52,7 @@
       padding: 10px;
       border-radius: 5px;
       background: #e0e0e0;
+      position: relative;
     }
     .message .name {
       font-weight: bold;
@@ -78,164 +80,209 @@
       border: none;
       cursor: pointer;
     }
+    /* Direct Messaging button */
+    .dm-button {
+      position: absolute;
+      top: 60px;
+      right: 10px;
+      padding: 8px 12px;
+      font-size: 14px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      z-index: 1000;
+    }
+    .dm-button:hover {
+      background: #0056b3;
+    }
     @media (max-width: 600px) {
       .chat-container {
         height: 100dvh;
         border: none;
+      }
+      .dm-button {
+        top: 52px;
+        right: 8px;
+        padding: 6px 10px;
+        font-size: 12px;
       }
     }
   </style>
 </head>
 <body>
 
-<div class="chat-container" id="chatApp">
-  <!-- Username editor -->
-  <div class="username-container">
-    <label for="nameEditor">Your name:</label>
-    <input type="text" id="nameEditor" placeholder="Anonymous" />
-    <button id="saveNameBtn">Save</button>
+  <!-- Direct Messaging button -->
+  <button id="dmBtn" class="dm-button">Direct messaging</button>
+
+  <div class="chat-container" id="chatApp">
+    <!-- Username editor -->
+    <div class="username-container">
+      <label for="nameEditor">Your name:</label>
+      <input type="text" id="nameEditor" placeholder="Anonymous" />
+      <button id="saveNameBtn">Save</button>
+    </div>
+
+    <!-- Chat messages + typing indicator -->
+    <div class="chat-messages" id="chat"></div>
+    <div class="typing-indicator" id="typingIndicator"></div>
+
+    <!-- Message input -->
+    <form class="chat-form" id="chatForm">
+      <input type="text" id="messageInput" placeholder="Type a message..." required autocomplete="off" />
+      <button type="submit">Send</button>
+      <button type="button" id="uploadImageBtn">📷</button>
+      <input type="file" id="imageInput" accept="image/*" style="display: none;" />
+    </form>
   </div>
 
-  <!-- Chat messages + typing indicator -->
-  <div class="chat-messages" id="chat"></div>
-  <div class="typing-indicator" id="typingIndicator"></div>
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js";
+    import {
+      getDatabase,
+      ref,
+      push,
+      onChildAdded,
+      set,
+      onValue,
+      remove,
+      serverTimestamp
+    } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-database.js";
 
-  <!-- Message input -->
-  <form class="chat-form" id="chatForm">
-    <input type="text" id="messageInput" placeholder="Type a message..." required autocomplete="off" />
-    <button type="submit">Send</button>
-    <button type="button" id="uploadImageBtn">📷</button>
-    <input type="file" id="imageInput" accept="image/*" style="display: none;" />
-  </form>
-</div>
+    import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm";
 
-<script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js";
-  import {
-    getDatabase,
-    ref,
-    push,
-    onChildAdded,
-    set,
-    onValue,
-    remove,
-    serverTimestamp
-  } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-database.js";
+    // Firebase config
+    const firebaseConfig = {
+      apiKey: "AIzaSyDpbon3vVvUX_OlK20JyiVBdm2-ELeoxHE",
+      authDomain: "chatapp-d700a.firebaseapp.com",
+      projectId: "chatapp-d700a",
+      storageBucket: "chatapp-d700a.firebasestorage.app",
+      messagingSenderId: "217425204494",
+      appId: "1:217425204494:web:e3c772b8e2d839248f735f",
+      measurementId: "G-Z2WR2TPDRB"
+    };
+    const app  = initializeApp(firebaseConfig);
+    const rtdb = getDatabase(app);
 
-  import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm";
+    // Supabase config
+    const supabase = createClient(
+      'https://zpvmdvunbkveitefxnvq.supabase.co',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpwdm1kdnVuYmt2ZWl0ZWZ4bnZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTExMzMxNzgsImV4cCI6MjA2NjcwOTE3OH0.SXnAVURqI3AAWRUn1LdQTEUgEYKwv0UEDNN3tAJ3D48'
+    );
 
-  // Firebase config
-  const firebaseConfig = {
-    apiKey: "AIzaSyDpbon3vVvUX_OlK20JyiVBdm2-ELeoxHE",
-    authDomain: "chatapp-d700a.firebaseapp.com",
-    projectId: "chatapp-d700a",
-    storageBucket: "chatapp-d700a.firebasestorage.app",
-    messagingSenderId: "217425204494",
-    appId: "1:217425204494:web:e3c772b8e2d839248f735f",
-    measurementId: "G-Z2WR2TPDRB"
-  };
-  const app  = initializeApp(firebaseConfig);
-  const rtdb = getDatabase(app);
+    // DOM elements
+    const chatEl     = document.getElementById('chat');
+    const chatForm   = document.getElementById('chatForm');
+    const msgInput   = document.getElementById('messageInput');
+    const typingEl   = document.getElementById('typingIndicator');
+    const nameEditor = document.getElementById('nameEditor');
+    const saveBtn    = document.getElementById('saveNameBtn');
+    const uploadBtn  = document.getElementById('uploadImageBtn');
+    const imageInput = document.getElementById('imageInput');
+    const dmBtn      = document.getElementById('dmBtn');
 
-  // Supabase config
-  const supabase = createClient(
-    'https://zpvmdvunbkveitefxnvq.supabase.co',
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpwdm1kdnVuYmt2ZWl0ZWZ4bnZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTExMzMxNzgsImV4cCI6MjA2NjcwOTE3OH0.SXnAVURqI3AAWRUn1LdQTEUgEYKwv0UEDNN3tAJ3D48'
-  );
+    // Load or default username
+    let username = localStorage.getItem('chat_username') || 'Anonymous';
+    nameEditor.value = username;
 
-  // DOM elements
-  const chatEl     = document.getElementById('chat');
-  const chatForm   = document.getElementById('chatForm');
-  const msgInput   = document.getElementById('messageInput');
-  const typingEl   = document.getElementById('typingIndicator');
-  const nameEditor = document.getElementById('nameEditor');
-  const saveBtn    = document.getElementById('saveNameBtn');
-  const uploadBtn  = document.getElementById('uploadImageBtn');
-  const imageInput = document.getElementById('imageInput');
-
-  // Load or default username
-  let username = localStorage.getItem('chat_username') || 'Anonymous';
-  nameEditor.value = username;
-
-  saveBtn.addEventListener('click', () => {
-    const n = nameEditor.value.trim() || 'Anonymous';
-    username = n;
-    localStorage.setItem('chat_username', n);
-    saveBtn.textContent = 'Saved!';
-    setTimeout(() => saveBtn.textContent = 'Save', 1000);
-  });
-
-  chatForm.addEventListener('submit', async e => {
-    e.preventDefault();
-    const text = msgInput.value.trim();
-    if (!text) return;
-    await push(ref(rtdb, 'messages'), {
-      name: username,
-      text,
-      createdAt: serverTimestamp()
+    saveBtn.addEventListener('click', () => {
+      const n = nameEditor.value.trim() || 'Anonymous';
+      username = n;
+      localStorage.setItem('chat_username', n);
+      saveBtn.textContent = 'Saved!';
+      setTimeout(() => saveBtn.textContent = 'Save', 1000);
     });
-    msgInput.value = '';
-    remove(ref(rtdb, `typingStatus/${username}`));
-  });
 
-  msgInput.addEventListener('input', () => {
-    set(ref(rtdb, `typingStatus/${username}`), true);
-    clearTimeout(typingTimeout);
-    typingTimeout = setTimeout(() => {
+    chatForm.addEventListener('submit', async e => {
+      e.preventDefault();
+      const text = msgInput.value.trim();
+      if (!text) return;
+      await push(ref(rtdb, 'messages'), {
+        name: username,
+        text,
+        createdAt: serverTimestamp()
+      });
+      msgInput.value = '';
       remove(ref(rtdb, `typingStatus/${username}`));
-    }, 2000);
-  });
-
-  let typingTimeout;
-
-  function startChat() {
-    onChildAdded(ref(rtdb, 'messages'), snap => {
-      const data = snap.val();
-      const div = document.createElement('div');
-      div.className = 'message';
-      div.innerHTML = `<div class="name">${data.name || 'Anonymous'}</div>${data.text}`;
-      chatEl.appendChild(div);
-      chatEl.scrollTop = chatEl.scrollHeight;
     });
 
-    onValue(ref(rtdb, 'typingStatus'), snap => {
-      const status = snap.val() || {};
-      const others = Object.keys(status).filter(u => u !== username);
-      typingEl.textContent = others.length
-        ? `${others.join(', ')} typing...`
-        : '';
+    msgInput.addEventListener('input', () => {
+      set(ref(rtdb, `typingStatus/${username}`), true);
+      clearTimeout(typingTimeout);
+      typingTimeout = setTimeout(() => {
+        remove(ref(rtdb, `typingStatus/${username}`));
+      }, 2000);
     });
-  }
 
-  startChat();
+    let typingTimeout;
 
-  // Image upload
-  uploadBtn.addEventListener('click', () => imageInput.click());
+    function startChat() {
+      onChildAdded(ref(rtdb, 'messages'), snap => {
+        const data = snap.val();
+        const msgId = snap.key;
+        const div = document.createElement('div');
+        div.className = 'message';
+        div.innerHTML = `<div class="name">${data.name || 'Anonymous'}</div>${data.text}`;
 
-  imageInput.addEventListener('change', async () => {
-    const file = imageInput.files[0];
-    if (!file) return;
+        // Delete button for message owner
+        if (data.name === username) {
+          const delBtn = document.createElement('button');
+          delBtn.textContent = 'Delete';
+          delBtn.style.marginLeft = '10px';
+          delBtn.addEventListener('click', () => {
+            remove(ref(rtdb, `messages/${msgId}`));
+          });
+          div.appendChild(delBtn);
+        }
 
-    const filePath = `${Date.now()}_${file.name}`;
-    const { data, error } = await supabase.storage.from('chat-images').upload(filePath, file);
+        chatEl.appendChild(div);
+        chatEl.scrollTop = chatEl.scrollHeight;
+      });
 
-    if (error) {
-      alert("Upload failed: " + error.message);
-      return;
+      onValue(ref(rtdb, 'typingStatus'), snap => {
+        const status = snap.val() || {};
+        const others = Object.keys(status).filter(u => u !== username);
+        typingEl.textContent = others.length
+          ? `${others.join(', ')} typing...`
+          : '';
+      });
     }
 
-    const { data: publicUrlData } = supabase.storage.from('chat-images').getPublicUrl(filePath);
-    const imageUrl = publicUrlData.publicUrl;
+    startChat();
 
-    await push(ref(rtdb, 'messages'), {
-      name: username,
-      text: `<img src="${imageUrl}" style="max-width: 100%;">`,
-      createdAt: serverTimestamp()
+    // Image upload
+    uploadBtn.addEventListener('click', () => imageInput.click());
+
+    imageInput.addEventListener('change', async () => {
+      const file = imageInput.files[0];
+      if (!file) return;
+
+      const filePath = `${Date.now()}_${file.name}`;
+      const { data, error } = await supabase.storage.from('chat-images').upload(filePath, file);
+
+      if (error) {
+        alert("Upload failed: " + error.message);
+        return;
+      }
+
+      const { data: publicUrlData } = supabase.storage.from('chat-images').getPublicUrl(filePath);
+      const imageUrl = publicUrlData.publicUrl;
+
+      await push(ref(rtdb, 'messages'), {
+        name: username,
+        text: `<img src="${imageUrl}" style="max-width: 100%;">`,
+        createdAt: serverTimestamp()
+      });
+
+      imageInput.value = '';
     });
 
-    imageInput.value = '';
-  });
-</script>
+    // Direct Messaging button handler
+    dmBtn.addEventListener('click', () => {
+      window.location.href = 'https://githubuser102234.github.io/chatapp/directmessaging';
+    });
+  </script>
 
 </body>
 </html>
