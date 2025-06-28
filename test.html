@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Firebase Chat</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f2f2f2;
+    }
+    .chat-container {
+      max-width: 600px;
+      height: 100vh;
+      margin: auto;
+      display: flex;
+      flex-direction: column;
+      background: white;
+      border: 1px solid #ccc;
+    }
+    .username-container {
+      padding: 10px;
+      border-bottom: 1px solid #ccc;
+      background: #fafafa;
+      display: flex;
+      align-items: center;
+    }
+    .username-container label {
+      margin-right: 8px;
+      font-weight: bold;
+    }
+    .username-container input {
+      flex: 1;
+      padding: 6px 8px;
+      font-size: 14px;
+      margin-right: 8px;
+    }
+    .username-container button {
+      padding: 6px 12px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .chat-messages {
+      flex: 1;
+      padding: 10px;
+      overflow-y: auto;
+    }
+    .message {
+      margin-bottom: 10px;
+      padding: 10px;
+      border-radius: 5px;
+      background: #e0e0e0;
+    }
+    .message .name {
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+    .typing-indicator {
+      font-style: italic;
+      color: #777;
+      padding: 5px 10px;
+    }
+    .chat-form {
+      display: flex;
+      border-top: 1px solid #ccc;
+      padding: 10px;
+    }
+    .chat-form input[type="text"] {
+      flex: 1;
+      padding: 10px;
+      font-size: 16px;
+    }
+    .chat-form button {
+      padding: 10px 20px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+    @media (max-width: 600px) {
+      .chat-container {
+        height: 100dvh;
+        border: none;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<div class="chat-container" id="chatApp">
+  <!-- Username editor -->
+  <div class="username-container">
+    <label for="nameEditor">Your name:</label>
+    <input type="text" id="nameEditor" placeholder="Anonymous" />
+    <button id="saveNameBtn">Save</button>
+  </div>
+
+  <!-- Chat messages + typing indicator -->
+  <div class="chat-messages" id="chat"></div>
+  <div class="typing-indicator" id="typingIndicator"></div>
+
+  <!-- Message input -->
+  <form class="chat-form" id="chatForm">
+    <input type="text" id="messageInput" placeholder="Type a message..." required autocomplete="off" />
+    <button type="submit">Send</button>
+    <button type="button" id="uploadImageBtn">📷</button>
+    <input type="file" id="imageInput" accept="image/*" style="display: none;" />
+  </form>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js";
+  import {
+    getDatabase,
+    ref,
+    push,
+    onChildAdded,
+    set,
+    onValue,
+    remove,
+    serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-database.js";
+
+  import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm";
+
+  // Firebase config
+  const firebaseConfig = {
+    apiKey: "AIzaSyDpbon3vVvUX_OlK20JyiVBdm2-ELeoxHE",
+    authDomain: "chatapp-d700a.firebaseapp.com",
+    projectId: "chatapp-d700a",
+    storageBucket: "chatapp-d700a.firebasestorage.app",
+    messagingSenderId: "217425204494",
+    appId: "1:217425204494:web:e3c772b8e2d839248f735f",
+    measurementId: "G-Z2WR2TPDRB"
+  };
+  const app  = initializeApp(firebaseConfig);
+  const rtdb = getDatabase(app);
+
+  // Supabase config
+  const supabase = createClient(
+    'https://zpvmdvunbkveitefxnvq.supabase.co',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpwdm1kdnVuYmt2ZWl0ZWZ4bnZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTExMzMxNzgsImV4cCI6MjA2NjcwOTE3OH0.SXnAVURqI3AAWRUn1LdQTEUgEYKwv0UEDNN3tAJ3D48'
+  );
+
+  // DOM elements
+  const chatEl     = document.getElementById('chat');
+  const chatForm   = document.getElementById('chatForm');
+  const msgInput   = document.getElementById('messageInput');
+  const typingEl   = document.getElementById('typingIndicator');
+  const nameEditor = document.getElementById('nameEditor');
+  const saveBtn    = document.getElementById('saveNameBtn');
+  const uploadBtn  = document.getElementById('uploadImageBtn');
+  const imageInput = document.getElementById('imageInput');
+
+  // Load or default username
+  let username = localStorage.getItem('chat_username') || 'Anonymous';
+  nameEditor.value = username;
+
+  saveBtn.addEventListener('click', () => {
+    const n = nameEditor.value.trim() || 'Anonymous';
+    username = n;
+    localStorage.setItem('chat_username', n);
+    saveBtn.textContent = 'Saved!';
+    setTimeout(() => saveBtn.textContent = 'Save', 1000);
+  });
+
+  chatForm.addEventListener('submit', async e => {
+    e.preventDefault();
+    const text = msgInput.value.trim();
+    if (!text) return;
+    await push(ref(rtdb, 'messages'), {
+      name: username,
+      text,
+      createdAt: serverTimestamp()
+    });
+    msgInput.value = '';
+    remove(ref(rtdb, `typingStatus/${username}`));
+  });
+
+  msgInput.addEventListener('input', () => {
+    set(ref(rtdb, `typingStatus/${username}`), true);
+    clearTimeout(typingTimeout);
+    typingTimeout = setTimeout(() => {
+      remove(ref(rtdb, `typingStatus/${username}`));
+    }, 2000);
+  });
+
+  let typingTimeout;
+
+  function startChat() {
+    onChildAdded(ref(rtdb, 'messages'), snap => {
+      const data = snap.val();
+      const div = document.createElement('div');
+      div.className = 'message';
+      div.innerHTML = `<div class="name">${data.name || 'Anonymous'}</div>${data.text}`;
+      chatEl.appendChild(div);
+      chatEl.scrollTop = chatEl.scrollHeight;
+    });
+
+    onValue(ref(rtdb, 'typingStatus'), snap => {
+      const status = snap.val() || {};
+      const others = Object.keys(status).filter(u => u !== username);
+      typingEl.textContent = others.length
+        ? `${others.join(', ')} typing...`
+        : '';
+    });
+  }
+
+  startChat();
+
+  // Image upload
+  uploadBtn.addEventListener('click', () => imageInput.click());
+
+  imageInput.addEventListener('change', async () => {
+    const file = imageInput.files[0];
+    if (!file) return;
+
+    const filePath = `${Date.now()}_${file.name}`;
+    const { data, error } = await supabase.storage.from('chat-images').upload(filePath, file);
+
+    if (error) {
+      alert("Upload failed: " + error.message);
+      return;
+    }
+
+    const { data: publicUrlData } = supabase.storage.from('chat-images').getPublicUrl(filePath);
+    const imageUrl = publicUrlData.publicUrl;
+
+    await push(ref(rtdb, 'messages'), {
+      name: username,
+      text: `<img src="${imageUrl}" style="max-width: 100%;">`,
+      createdAt: serverTimestamp()
+    });
+
+    imageInput.value = '';
+  });
+</script>
+
+</body>
+</html>
