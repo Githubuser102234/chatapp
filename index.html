@@ -19,6 +19,28 @@
       background: white;
       border: 1px solid #ccc;
     }
+    .username-container {
+      padding: 10px;
+      border-bottom: 1px solid #ccc;
+      background: #fafafa;
+      display: flex;
+      align-items: center;
+    }
+    .username-container label {
+      margin-right: 8px;
+      font-weight: bold;
+    }
+    .username-container input {
+      flex: 1;
+      padding: 6px 8px;
+      font-size: 14px;
+      margin-right: 8px;
+    }
+    .username-container button {
+      padding: 6px 12px;
+      font-size: 14px;
+      cursor: pointer;
+    }
     .chat-messages {
       flex: 1;
       padding: 10px;
@@ -56,15 +78,6 @@
       border: none;
       cursor: pointer;
     }
-    #namePrompt {
-      padding: 20px;
-      text-align: center;
-    }
-    #namePrompt input {
-      padding: 10px;
-      font-size: 16px;
-      width: 80%;
-    }
     @media (max-width: 600px) {
       .chat-container {
         height: 100dvh;
@@ -75,14 +88,19 @@
 </head>
 <body>
 
-<div id="namePrompt" style="display: none;">
-  <h2>Enter Your Name</h2>
-  <input type="text" id="usernameInput" placeholder="Your name..." />
-</div>
+<div class="chat-container" id="chatApp">
+  <!-- Username editor -->
+  <div class="username-container">
+    <label for="nameEditor">Your name:</label>
+    <input type="text" id="nameEditor" placeholder="Anonymous" />
+    <button id="saveNameBtn">Save</button>
+  </div>
 
-<div class="chat-container" style="display: none;" id="chatApp">
+  <!-- Chat messages + typing indicator -->
   <div class="chat-messages" id="chat"></div>
   <div class="typing-indicator" id="typingIndicator"></div>
+
+  <!-- Message input -->
   <form class="chat-form" id="chatForm">
     <input type="text" id="messageInput" placeholder="Type a message..." required autocomplete="off" />
     <button type="submit">Send</button>
@@ -102,7 +120,7 @@
     serverTimestamp
   } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-database.js";
 
-  // — your existing config —
+  // — your existing Firebase config —
   const firebaseConfig = {
     apiKey: "AIzaSyDpbon3vVvUX_OlK20JyiVBdm2-ELeoxHE",
     authDomain: "chatapp-d700a.firebaseapp.com",
@@ -112,49 +130,39 @@
     appId: "1:217425204494:web:e3c772b8e2d839248f735f",
     measurementId: "G-Z2WR2TPDRB"
   };
-
-  const app = initializeApp(firebaseConfig);
+  const app  = initializeApp(firebaseConfig);
   const rtdb = getDatabase(app);
 
   // DOM refs
-  const chatEl      = document.getElementById('chat');
-  const chatForm    = document.getElementById('chatForm');
-  const msgInput    = document.getElementById('messageInput');
-  const namePrompt  = document.getElementById('namePrompt');
-  const chatApp     = document.getElementById('chatApp');
-  const nameInput   = document.getElementById('usernameInput');
-  const typingEl    = document.getElementById('typingIndicator');
+  const chatEl     = document.getElementById('chat');
+  const chatForm   = document.getElementById('chatForm');
+  const msgInput   = document.getElementById('messageInput');
+  const typingEl   = document.getElementById('typingIndicator');
+  const nameEditor = document.getElementById('nameEditor');
+  const saveBtn    = document.getElementById('saveNameBtn');
 
-  // retrieve or ask for username
-  let username = localStorage.getItem('chat_username') || '';
-  if (!username) {
-    namePrompt.style.display = 'block';
-  } else {
-    chatApp.style.display = 'flex';
-    startChat();
-  }
+  // Load or default username
+  let username = localStorage.getItem('chat_username') || 'Anonymous';
+  nameEditor.value = username;
 
-  nameInput.addEventListener('keydown', e => {
-    if (e.key === 'Enter') {
-      const n = nameInput.value.trim();
-      if (n) {
-        username = n;
-        localStorage.setItem('chat_username', n);
-        namePrompt.style.display = 'none';
-        chatApp.style.display = 'flex';
-        startChat();
-      }
-    }
+  // Save name handler
+  saveBtn.addEventListener('click', () => {
+    const n = nameEditor.value.trim() || 'Anonymous';
+    username = n;
+    localStorage.setItem('chat_username', n);
+    // Optional: give some UI feedback, e.g. disable button briefly
+    saveBtn.textContent = 'Saved!';
+    setTimeout(() => saveBtn.textContent = 'Save', 1000);
   });
 
-  // send message → push to RTDB
+  // Send message → push to RTDB
   chatForm.addEventListener('submit', async e => {
     e.preventDefault();
     const text = msgInput.value.trim();
     if (!text) return;
     await push(ref(rtdb, 'messages'), {
       name: username,
-      text: text,
+      text,
       createdAt: serverTimestamp()
     });
     msgInput.value = '';
@@ -162,7 +170,7 @@
     remove(ref(rtdb, `typingStatus/${username}`));
   });
 
-  // typing indicator → same as before
+  // Typing indicator
   let typingTimeout;
   msgInput.addEventListener('input', () => {
     set(ref(rtdb, `typingStatus/${username}`), true);
@@ -172,10 +180,10 @@
     }, 2000);
   });
 
+  // Start listening to chat + typing
   function startChat() {
-    // listen for new messages
-    const msgsRef = ref(rtdb, 'messages');
-    onChildAdded(msgsRef, snap => {
+    // New messages
+    onChildAdded(ref(rtdb, 'messages'), snap => {
       const data = snap.val();
       const div = document.createElement('div');
       div.className = 'message';
@@ -184,15 +192,18 @@
       chatEl.scrollTop = chatEl.scrollHeight;
     });
 
-    // listen for typing status
+    // Typing status
     onValue(ref(rtdb, 'typingStatus'), snap => {
       const status = snap.val() || {};
-      const who = Object.keys(status).filter(u => u !== username);
-      typingEl.textContent = who.length
-        ? `${who.join(', ')} typing...`
+      const others = Object.keys(status).filter(u => u !== username);
+      typingEl.textContent = others.length
+        ? `${others.join(', ')} typing...`
         : '';
     });
   }
+
+  // kick off
+  startChat();
 </script>
 
 </body>
