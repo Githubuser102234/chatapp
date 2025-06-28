@@ -91,9 +91,18 @@
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js";
-  import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-firestore.js";
-  import { getDatabase, ref, set, onValue, remove } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-database.js";
+  import {
+    getDatabase,
+    ref,
+    push,
+    onChildAdded,
+    set,
+    onValue,
+    remove,
+    serverTimestamp
+  } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-database.js";
 
+  // — your existing config —
   const firebaseConfig = {
     apiKey: "AIzaSyDpbon3vVvUX_OlK20JyiVBdm2-ELeoxHE",
     authDomain: "chatapp-d700a.firebaseapp.com",
@@ -105,64 +114,57 @@
   };
 
   const app = initializeApp(firebaseConfig);
-  const db = getFirestore(app);
   const rtdb = getDatabase(app);
 
-  const chat = document.getElementById('chat');
-  const chatForm = document.getElementById('chatForm');
-  const messageInput = document.getElementById('messageInput');
-  const namePrompt = document.getElementById('namePrompt');
-  const chatApp = document.getElementById('chatApp');
-  const usernameInput = document.getElementById('usernameInput');
-  const typingIndicator = document.getElementById('typingIndicator');
+  // DOM refs
+  const chatEl      = document.getElementById('chat');
+  const chatForm    = document.getElementById('chatForm');
+  const msgInput    = document.getElementById('messageInput');
+  const namePrompt  = document.getElementById('namePrompt');
+  const chatApp     = document.getElementById('chatApp');
+  const nameInput   = document.getElementById('usernameInput');
+  const typingEl    = document.getElementById('typingIndicator');
 
-  let username = localStorage.getItem('chat_username');
-
-  function askName() {
+  // retrieve or ask for username
+  let username = localStorage.getItem('chat_username') || '';
+  if (!username) {
     namePrompt.style.display = 'block';
-    chatApp.style.display = 'none';
-  }
-
-  function showChat() {
-    namePrompt.style.display = 'none';
+  } else {
     chatApp.style.display = 'flex';
     startChat();
   }
 
-  if (!username) {
-    askName();
-  } else {
-    showChat();
-  }
-
-  usernameInput.addEventListener('keydown', (e) => {
+  nameInput.addEventListener('keydown', e => {
     if (e.key === 'Enter') {
-      const name = usernameInput.value.trim();
-      if (name) {
-        localStorage.setItem('chat_username', name);
-        username = name;
-        showChat();
+      const n = nameInput.value.trim();
+      if (n) {
+        username = n;
+        localStorage.setItem('chat_username', n);
+        namePrompt.style.display = 'none';
+        chatApp.style.display = 'flex';
+        startChat();
       }
     }
   });
 
-  chatForm.addEventListener('submit', async (e) => {
+  // send message → push to RTDB
+  chatForm.addEventListener('submit', async e => {
     e.preventDefault();
-    const text = messageInput.value.trim();
-    if (text !== '') {
-      await addDoc(collection(db, "messages"), {
-        name: username,
-        text: text,
-        createdAt: serverTimestamp()
-      });
-      messageInput.value = '';
-      remove(ref(rtdb, `typingStatus/${username}`)); // Remove typing status
-    }
+    const text = msgInput.value.trim();
+    if (!text) return;
+    await push(ref(rtdb, 'messages'), {
+      name: username,
+      text: text,
+      createdAt: serverTimestamp()
+    });
+    msgInput.value = '';
+    // clear typing flag
+    remove(ref(rtdb, `typingStatus/${username}`));
   });
 
-  // Typing logic
+  // typing indicator → same as before
   let typingTimeout;
-  messageInput.addEventListener('input', () => {
+  msgInput.addEventListener('input', () => {
     set(ref(rtdb, `typingStatus/${username}`), true);
     clearTimeout(typingTimeout);
     typingTimeout = setTimeout(() => {
@@ -171,35 +173,24 @@
   });
 
   function startChat() {
-    // Firestore chat listener
-    const q = query(collection(db, "messages"), orderBy("createdAt"));
-    onSnapshot(q, (snapshot) => {
-      chat.innerHTML = '';
-      snapshot.forEach((doc) => {
-        const data = doc.data();
-        const msgEl = document.createElement('div');
-        msgEl.className = 'message';
-        msgEl.innerHTML = `<div class="name">${data.name || "Anonymous"}</div>${data.text}`;
-        chat.appendChild(msgEl);
-      });
-      chat.scrollTop = chat.scrollHeight;
+    // listen for new messages
+    const msgsRef = ref(rtdb, 'messages');
+    onChildAdded(msgsRef, snap => {
+      const data = snap.val();
+      const div = document.createElement('div');
+      div.className = 'message';
+      div.innerHTML = `<div class="name">${data.name||'Anonymous'}</div>${data.text}`;
+      chatEl.appendChild(div);
+      chatEl.scrollTop = chatEl.scrollHeight;
     });
 
-    // Typing indicator listener
-    const typingRef = ref(rtdb, 'typingStatus');
-    onValue(typingRef, (snapshot) => {
-      const data = snapshot.val();
-      let othersTyping = [];
-      for (let user in data) {
-        if (user !== username) {
-          othersTyping.push(user);
-        }
-      }
-      if (othersTyping.length > 0) {
-        typingIndicator.textContent = `${othersTyping.join(', ')} typing...`;
-      } else {
-        typingIndicator.textContent = '';
-      }
+    // listen for typing status
+    onValue(ref(rtdb, 'typingStatus'), snap => {
+      const status = snap.val() || {};
+      const who = Object.keys(status).filter(u => u !== username);
+      typingEl.textContent = who.length
+        ? `${who.join(', ')} typing...`
+        : '';
     });
   }
 </script>
