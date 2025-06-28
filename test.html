@@ -134,6 +134,8 @@
       <button type="submit">Send</button>
       <button type="button" id="uploadImageBtn">📷</button>
       <input type="file" id="imageInput" accept="image/*" style="display: none;" />
+      <button type="button" id="uploadVideoBtn">🎥</button>
+      <input type="file" id="videoInput" accept="video/*" style="display: none;" />
     </form>
   </div>
 
@@ -180,6 +182,8 @@
     const saveBtn    = document.getElementById('saveNameBtn');
     const uploadBtn  = document.getElementById('uploadImageBtn');
     const imageInput = document.getElementById('imageInput');
+    const uploadVideoBtn = document.getElementById('uploadVideoBtn');
+    const videoInput = document.getElementById('videoInput');
     const dmBtn      = document.getElementById('dmBtn');
 
     // Load or default username
@@ -276,6 +280,33 @@
       });
 
       imageInput.value = '';
+    });
+
+    // Video upload
+    uploadVideoBtn.addEventListener('click', () => videoInput.click());
+
+    videoInput.addEventListener('change', async () => {
+      const file = videoInput.files[0];
+      if (!file) return;
+
+      const filePath = `${Date.now()}_${file.name}`;
+      const { data, error } = await supabase.storage.from('chat-videos').upload(filePath, file);
+
+      if (error) {
+        alert("Upload failed: " + error.message);
+        return;
+      }
+
+      const { data: publicUrlData } = supabase.storage.from('chat-videos').getPublicUrl(filePath);
+      const videoUrl = publicUrlData.publicUrl;
+
+      await push(ref(rtdb, 'messages'), {
+        name: username,
+        text: `<video controls style="max-width: 100%;"><source src="${videoUrl}" type="${file.type}"></video>`,
+        createdAt: serverTimestamp()
+      });
+
+      videoInput.value = '';
     });
 
     // Direct Messaging button handler
