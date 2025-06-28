@@ -104,6 +104,8 @@
   <form class="chat-form" id="chatForm">
     <input type="text" id="messageInput" placeholder="Type a message..." required autocomplete="off" />
     <button type="submit">Send</button>
+    <button type="button" id="uploadImageBtn">📷</button>
+    <input type="file" id="imageInput" accept="image/*" style="display: none;" />
   </form>
 </div>
 
@@ -120,7 +122,9 @@
     serverTimestamp
   } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-database.js";
 
-  // — your existing Firebase config —
+  import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm";
+
+  // Firebase config
   const firebaseConfig = {
     apiKey: "AIzaSyDpbon3vVvUX_OlK20JyiVBdm2-ELeoxHE",
     authDomain: "chatapp-d700a.firebaseapp.com",
@@ -133,29 +137,34 @@
   const app  = initializeApp(firebaseConfig);
   const rtdb = getDatabase(app);
 
-  // DOM refs
+  // Supabase config
+  const supabase = createClient(
+    'https://zpvmdvunbkveitefxnvq.supabase.co',
+    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpwdm1kdnVuYmt2ZWl0ZWZ4bnZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTExMzMxNzgsImV4cCI6MjA2NjcwOTE3OH0.SXnAVURqI3AAWRUn1LdQTEUgEYKwv0UEDNN3tAJ3D48'
+  );
+
+  // DOM elements
   const chatEl     = document.getElementById('chat');
   const chatForm   = document.getElementById('chatForm');
   const msgInput   = document.getElementById('messageInput');
   const typingEl   = document.getElementById('typingIndicator');
   const nameEditor = document.getElementById('nameEditor');
   const saveBtn    = document.getElementById('saveNameBtn');
+  const uploadBtn  = document.getElementById('uploadImageBtn');
+  const imageInput = document.getElementById('imageInput');
 
   // Load or default username
   let username = localStorage.getItem('chat_username') || 'Anonymous';
   nameEditor.value = username;
 
-  // Save name handler
   saveBtn.addEventListener('click', () => {
     const n = nameEditor.value.trim() || 'Anonymous';
     username = n;
     localStorage.setItem('chat_username', n);
-    // Optional: give some UI feedback, e.g. disable button briefly
     saveBtn.textContent = 'Saved!';
     setTimeout(() => saveBtn.textContent = 'Save', 1000);
   });
 
-  // Send message → push to RTDB
   chatForm.addEventListener('submit', async e => {
     e.preventDefault();
     const text = msgInput.value.trim();
@@ -166,12 +175,9 @@
       createdAt: serverTimestamp()
     });
     msgInput.value = '';
-    // clear typing flag
     remove(ref(rtdb, `typingStatus/${username}`));
   });
 
-  // Typing indicator
-  let typingTimeout;
   msgInput.addEventListener('input', () => {
     set(ref(rtdb, `typingStatus/${username}`), true);
     clearTimeout(typingTimeout);
@@ -180,19 +186,18 @@
     }, 2000);
   });
 
-  // Start listening to chat + typing
+  let typingTimeout;
+
   function startChat() {
-    // New messages
     onChildAdded(ref(rtdb, 'messages'), snap => {
       const data = snap.val();
       const div = document.createElement('div');
       div.className = 'message';
-      div.innerHTML = `<div class="name">${data.name||'Anonymous'}</div>${data.text}`;
+      div.innerHTML = `<div class="name">${data.name || 'Anonymous'}</div>${data.text}`;
       chatEl.appendChild(div);
       chatEl.scrollTop = chatEl.scrollHeight;
     });
 
-    // Typing status
     onValue(ref(rtdb, 'typingStatus'), snap => {
       const status = snap.val() || {};
       const others = Object.keys(status).filter(u => u !== username);
@@ -202,8 +207,34 @@
     });
   }
 
-  // kick off
   startChat();
+
+  // Image upload
+  uploadBtn.addEventListener('click', () => imageInput.click());
+
+  imageInput.addEventListener('change', async () => {
+    const file = imageInput.files[0];
+    if (!file) return;
+
+    const filePath = `${Date.now()}_${file.name}`;
+    const { data, error } = await supabase.storage.from('chat-images').upload(filePath, file);
+
+    if (error) {
+      alert("Upload failed: " + error.message);
+      return;
+    }
+
+    const { data: publicUrlData } = supabase.storage.from('chat-images').getPublicUrl(filePath);
+    const imageUrl = publicUrlData.publicUrl;
+
+    await push(ref(rtdb, 'messages'), {
+      name: username,
+      text: `<img src="${imageUrl}" style="max-width: 100%;">`,
+      createdAt: serverTimestamp()
+    });
+
+    imageInput.value = '';
+  });
 </script>
 
 </body>
