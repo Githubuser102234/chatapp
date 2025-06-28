@@ -133,9 +133,9 @@
       <input type="text" id="messageInput" placeholder="Type a message..." required autocomplete="off" />
       <button type="submit">Send</button>
       <button type="button" id="uploadImageBtn">📷</button>
-      <input type="file" id="imageInput" accept="image/*" style="display: none;" />
+      <input type="file" id="imageInput" accept="image/*,video/*" style="display: none;" />
       <button type="button" id="uploadVideoBtn">🎥</button>
-      <input type="file" id="videoInput" accept="video/*" style="display: none;" />
+      <input type="file" id="videoInput" accept="video/*,image/*" style="display: none;" />
     </form>
   </div>
 
@@ -174,17 +174,17 @@
     );
 
     // DOM elements
-    const chatEl     = document.getElementById('chat');
-    const chatForm   = document.getElementById('chatForm');
-    const msgInput   = document.getElementById('messageInput');
-    const typingEl   = document.getElementById('typingIndicator');
-    const nameEditor = document.getElementById('nameEditor');
-    const saveBtn    = document.getElementById('saveNameBtn');
-    const uploadBtn  = document.getElementById('uploadImageBtn');
-    const imageInput = document.getElementById('imageInput');
-    const uploadVideoBtn = document.getElementById('uploadVideoBtn');
-    const videoInput = document.getElementById('videoInput');
-    const dmBtn      = document.getElementById('dmBtn');
+    const chatEl        = document.getElementById('chat');
+    const chatForm      = document.getElementById('chatForm');
+    const msgInput      = document.getElementById('messageInput');
+    const typingEl      = document.getElementById('typingIndicator');
+    const nameEditor    = document.getElementById('nameEditor');
+    const saveBtn       = document.getElementById('saveNameBtn');
+    const uploadImgBtn  = document.getElementById('uploadImageBtn');
+    const imageInput    = document.getElementById('imageInput');
+    const uploadVidBtn  = document.getElementById('uploadVideoBtn');
+    const videoInput    = document.getElementById('videoInput');
+    const dmBtn         = document.getElementById('dmBtn');
 
     // Load or default username
     let username = localStorage.getItem('chat_username') || 'Anonymous';
@@ -255,57 +255,50 @@
 
     startChat();
 
-    // Image upload
-    uploadBtn.addEventListener('click', () => imageInput.click());
-
+    // Image upload (now also handles videos if you click 📷)
+    uploadImgBtn.addEventListener('click', () => imageInput.click());
     imageInput.addEventListener('change', async () => {
       const file = imageInput.files[0];
       if (!file) return;
-
       const filePath = `${Date.now()}_${file.name}`;
       const { data, error } = await supabase.storage.from('chat-images').upload(filePath, file);
-
       if (error) {
         alert("Upload failed: " + error.message);
         return;
       }
-
       const { data: publicUrlData } = supabase.storage.from('chat-images').getPublicUrl(filePath);
-      const imageUrl = publicUrlData.publicUrl;
-
+      const url = publicUrlData.publicUrl;
+      const isVideo = file.type.startsWith('video/');
+      const html = isVideo
+        ? `<video controls style="max-width:100%"><source src="${url}" type="${file.type}">Your browser doesn't support video.</video>`
+        : `<img src="${url}" style="max-width:100%;">`;
       await push(ref(rtdb, 'messages'), {
         name: username,
-        text: `<img src="${imageUrl}" style="max-width: 100%;">`,
+        text: html,
         createdAt: serverTimestamp()
       });
-
       imageInput.value = '';
     });
 
-    // Video upload
-    uploadVideoBtn.addEventListener('click', () => videoInput.click());
-
+    // Video upload button (identical behavior, same bucket)
+    uploadVidBtn.addEventListener('click', () => videoInput.click());
     videoInput.addEventListener('change', async () => {
       const file = videoInput.files[0];
       if (!file) return;
-
       const filePath = `${Date.now()}_${file.name}`;
-      const { data, error } = await supabase.storage.from('chat-videos').upload(filePath, file);
-
+      const { data, error } = await supabase.storage.from('chat-images').upload(filePath, file);
       if (error) {
         alert("Upload failed: " + error.message);
         return;
       }
-
-      const { data: publicUrlData } = supabase.storage.from('chat-videos').getPublicUrl(filePath);
-      const videoUrl = publicUrlData.publicUrl;
-
+      const { data: publicUrlData } = supabase.storage.from('chat-images').getPublicUrl(filePath);
+      const url = publicUrlData.publicUrl;
+      const html = `<video controls style="max-width:100%"><source src="${url}" type="${file.type}">Your browser doesn't support video.</video>`;
       await push(ref(rtdb, 'messages'), {
         name: username,
-        text: `<video controls style="max-width: 100%;"><source src="${videoUrl}" type="${file.type}"></video>`,
+        text: html,
         createdAt: serverTimestamp()
       });
-
       videoInput.value = '';
     });
 
