@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Firebase Chat</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f2f2f2;
+    }
+    .chat-container {
+      max-width: 600px;
+      height: 100vh;
+      margin: auto;
+      display: flex;
+      flex-direction: column;
+      background: white;
+      border: 1px solid #ccc;
+    }
+    .chat-messages {
+      flex: 1;
+      padding: 10px;
+      overflow-y: auto;
+    }
+    .message {
+      margin-bottom: 10px;
+      padding: 10px;
+      border-radius: 5px;
+      background: #e0e0e0;
+    }
+    .message .name {
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+    .typing-indicator {
+      font-style: italic;
+      color: #777;
+      padding: 5px 10px;
+    }
+    .chat-form {
+      display: flex;
+      border-top: 1px solid #ccc;
+      padding: 10px;
+    }
+    .chat-form input[type="text"] {
+      flex: 1;
+      padding: 10px;
+      font-size: 16px;
+    }
+    .chat-form button {
+      padding: 10px 20px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+    #namePrompt {
+      padding: 20px;
+      text-align: center;
+    }
+    #namePrompt input {
+      padding: 10px;
+      font-size: 16px;
+      width: 80%;
+    }
+    @media (max-width: 600px) {
+      .chat-container {
+        height: 100dvh;
+        border: none;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<div id="namePrompt" style="display: none;">
+  <h2>Enter Your Name</h2>
+  <input type="text" id="usernameInput" placeholder="Your name..." />
+</div>
+
+<div class="chat-container" style="display: none;" id="chatApp">
+  <div class="chat-messages" id="chat"></div>
+  <div class="typing-indicator" id="typingIndicator"></div>
+  <form class="chat-form" id="chatForm">
+    <input type="text" id="messageInput" placeholder="Type a message..." required autocomplete="off" />
+    <button type="submit">Send</button>
+  </form>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js";
+  import { getFirestore, collection, addDoc, query, orderBy, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-firestore.js";
+  import { getDatabase, ref, set, onValue, remove } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDpbon3vVvUX_OlK20JyiVBdm2-ELeoxHE",
+    authDomain: "chatapp-d700a.firebaseapp.com",
+    projectId: "chatapp-d700a",
+    storageBucket: "chatapp-d700a.firebasestorage.app",
+    messagingSenderId: "217425204494",
+    appId: "1:217425204494:web:e3c772b8e2d839248f735f",
+    measurementId: "G-Z2WR2TPDRB"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+  const rtdb = getDatabase(app);
+
+  const chat = document.getElementById('chat');
+  const chatForm = document.getElementById('chatForm');
+  const messageInput = document.getElementById('messageInput');
+  const namePrompt = document.getElementById('namePrompt');
+  const chatApp = document.getElementById('chatApp');
+  const usernameInput = document.getElementById('usernameInput');
+  const typingIndicator = document.getElementById('typingIndicator');
+
+  let username = localStorage.getItem('chat_username');
+
+  function askName() {
+    namePrompt.style.display = 'block';
+    chatApp.style.display = 'none';
+  }
+
+  function showChat() {
+    namePrompt.style.display = 'none';
+    chatApp.style.display = 'flex';
+    startChat();
+  }
+
+  if (!username) {
+    askName();
+  } else {
+    showChat();
+  }
+
+  usernameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const name = usernameInput.value.trim();
+      if (name) {
+        localStorage.setItem('chat_username', name);
+        username = name;
+        showChat();
+      }
+    }
+  });
+
+  chatForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const text = messageInput.value.trim();
+    if (text !== '') {
+      await addDoc(collection(db, "messages"), {
+        name: username,
+        text: text,
+        createdAt: serverTimestamp()
+      });
+      messageInput.value = '';
+      remove(ref(rtdb, `typingStatus/${username}`)); // Remove typing status
+    }
+  });
+
+  // Typing logic
+  let typingTimeout;
+  messageInput.addEventListener('input', () => {
+    set(ref(rtdb, `typingStatus/${username}`), true);
+    clearTimeout(typingTimeout);
+    typingTimeout = setTimeout(() => {
+      remove(ref(rtdb, `typingStatus/${username}`));
+    }, 2000);
+  });
+
+  function startChat() {
+    // Firestore chat listener
+    const q = query(collection(db, "messages"), orderBy("createdAt"));
+    onSnapshot(q, (snapshot) => {
+      chat.innerHTML = '';
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        const msgEl = document.createElement('div');
+        msgEl.className = 'message';
+        msgEl.innerHTML = `<div class="name">${data.name || "Anonymous"}</div>${data.text}`;
+        chat.appendChild(msgEl);
+      });
+      chat.scrollTop = chat.scrollHeight;
+    });
+
+    // Typing indicator listener
+    const typingRef = ref(rtdb, 'typingStatus');
+    onValue(typingRef, (snapshot) => {
+      const data = snapshot.val();
+      let othersTyping = [];
+      for (let user in data) {
+        if (user !== username) {
+          othersTyping.push(user);
+        }
+      }
+      if (othersTyping.length > 0) {
+        typingIndicator.textContent = `${othersTyping.join(', ')} typing...`;
+      } else {
+        typingIndicator.textContent = '';
+      }
+    });
+  }
+</script>
+
+</body>
+</html>
