@@ -5,7 +5,110 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Firebase Chat</title>
   <style>
-    /* Your existing styles here */
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f2f2f2;
+      position: relative;
+    }
+    .chat-container {
+      max-width: 600px;
+      height: 100vh;
+      margin: auto;
+      display: flex;
+      flex-direction: column;
+      background: white;
+      border: 1px solid #ccc;
+    }
+    .username-container {
+      padding: 10px;
+      border-bottom: 1px solid #ccc;
+      background: #fafafa;
+      display: flex;
+      align-items: center;
+    }
+    .username-container label {
+      margin-right: 8px;
+      font-weight: bold;
+    }
+    .username-container input {
+      flex: 1;
+      padding: 6px 8px;
+      font-size: 14px;
+      margin-right: 8px;
+    }
+    .username-container button {
+      padding: 6px 12px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    .chat-messages {
+      flex: 1;
+      padding: 10px;
+      overflow-y: auto;
+    }
+    .message {
+      margin-bottom: 10px;
+      padding: 10px;
+      border-radius: 5px;
+      background: #e0e0e0;
+      position: relative;
+    }
+    .message .name {
+      font-weight: bold;
+      margin-bottom: 5px;
+    }
+    .typing-indicator {
+      font-style: italic;
+      color: #777;
+      padding: 5px 10px;
+    }
+    .chat-form {
+      display: flex;
+      border-top: 1px solid #ccc;
+      padding: 10px;
+    }
+    .chat-form input[type="text"] {
+      flex: 1;
+      padding: 10px;
+      font-size: 16px;
+    }
+    .chat-form button {
+      padding: 10px 20px;
+      background: #4CAF50;
+      color: white;
+      border: none;
+      cursor: pointer;
+    }
+    /* Direct Messaging button */
+    .dm-button {
+      position: absolute;
+      top: 60px;
+      right: 10px;
+      padding: 8px 12px;
+      font-size: 14px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      z-index: 1000;
+    }
+    .dm-button:hover {
+      background: #0056b3;
+    }
+    @media (max-width: 600px) {
+      .chat-container {
+        height: 100dvh;
+        border: none;
+      }
+      .dm-button {
+        top: 52px;
+        right: 8px;
+        padding: 6px 10px;
+        font-size: 12px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -81,27 +184,20 @@
         api_secret: API_SECRET,
         url: imageUrl
       });
-
       const url = `https://api.sightengine.com/1.0/check.json?${params.toString()}`;
-
       try {
         const response = await fetch(url);
         const data = await response.json();
         console.log('Moderation result:', data);
-
-        // You can customize your safe thresholds here
-        const nuditySafe = data.nudity && data.nudity.safe >= 0.85;
+        const nuditySafe    = data.nudity    && data.nudity.safe    >= 0.85;
         const offensiveSafe = data.offensive && data.offensive.prob <= 0.3;
-        const goreSafe = data.gore && data.gore.prob <= 0.3;
-        const violenceSafe = data.violence && data.violence.prob <= 0.3;
-        const selfHarmSafe = data['self-harm'] && data['self-harm'].prob <= 0.3;
-
+        const goreSafe      = data.gore      && data.gore.prob      <= 0.3;
+        const violenceSafe  = data.violence  && data.violence.prob  <= 0.3;
+        const selfHarmSafe  = data['self-harm'] && data['self-harm'].prob <= 0.3;
         const isSafe = nuditySafe && offensiveSafe && goreSafe && violenceSafe && selfHarmSafe;
         return { isSafe, data };
-
       } catch (err) {
         console.error('Error calling Sightengine API:', err);
-        // If API call fails, allow image by default or reject depending on your policy
         return { isSafe: true, data: null };
       }
     }
@@ -161,8 +257,6 @@
         const div = document.createElement('div');
         div.className = 'message';
         div.innerHTML = `<div class="name">${data.name || 'Anonymous'}</div>${data.text}`;
-
-        // Delete button for message owner
         if (data.name === username) {
           const delBtn = document.createElement('button');
           delBtn.textContent = 'Delete';
@@ -172,7 +266,6 @@
           });
           div.appendChild(delBtn);
         }
-
         chatEl.appendChild(div);
         chatEl.scrollTop = chatEl.scrollHeight;
       });
@@ -194,40 +287,29 @@
       const file = imageInput.files[0];
       if (!file) return;
       const filePath = `${Date.now()}_${file.name}`;
-      const { data, error } = await supabase.storage
-        .from('images')
-        .upload(filePath, file);
-
+      const { data, error } = await supabase.storage.from('chat-images').upload(filePath, file);
       if (error) {
-        alert('Upload failed: ' + error.message);
+        alert("Upload failed: " + error.message);
         return;
       }
-
-      // Get public URL for moderation
-      const { publicUrl, error: urlError } = supabase.storage
-        .from('images')
-        .getPublicUrl(filePath);
-
-      if (urlError) {
-        alert('Error getting public URL: ' + urlError.message);
-        return;
-      }
-
-      // Call moderation API before sending
-      const result = await moderateImageUrl(publicUrl);
+      const { data: publicUrlData } = supabase.storage.from('chat-images').getPublicUrl(filePath);
+      const url = publicUrlData.publicUrl;
+      const result = await moderateImageUrl(url);
       if (!result.isSafe) {
         alert('Image rejected by moderation for inappropriate content.');
-        // Optionally remove uploaded image if you want
-        await supabase.storage.from('images').remove([filePath]);
+        await supabase.storage.from('chat-images').remove([filePath]);
         return;
       }
-
-      // Send message with image URL
+      const isVideo = file.type.startsWith('video/');
+      const html = isVideo
+        ? `<video controls style="max-width:100%"><source src="${url}" type="${file.type}">Your browser doesn't support video.</video>`
+        : `<img src="${url}" style="max-width:100%;">`;
       await push(ref(rtdb, 'messages'), {
         name: username,
-        imageUrl: publicUrl,
+        text: html,
         createdAt: serverTimestamp()
       });
+      imageInput.value = '';
     });
 
     // Video upload with moderation
@@ -236,42 +318,32 @@
       const file = videoInput.files[0];
       if (!file) return;
       const filePath = `${Date.now()}_${file.name}`;
-      const { data, error } = await supabase.storage
-        .from('videos')
-        .upload(filePath, file);
-
+      const { data, error } = await supabase.storage.from('chat-images').upload(filePath, file);
       if (error) {
-        alert('Upload failed: ' + error.message);
+        alert("Upload failed: " + error.message);
         return;
       }
-
-      // Get public URL for moderation
-      const { publicUrl, error: urlError } = supabase.storage
-        .from('videos')
-        .getPublicUrl(filePath);
-
-      if (urlError) {
-        alert('Error getting public URL: ' + urlError.message);
-        return;
-      }
-
-      // Call moderation API before sending
-      const result = await moderateImageUrl(publicUrl);
+      const { data: publicUrlData } = supabase.storage.from('chat-images').getPublicUrl(filePath);
+      const url = publicUrlData.publicUrl;
+      const result = await moderateImageUrl(url);
       if (!result.isSafe) {
         alert('Video rejected by moderation for inappropriate content.');
-        // Optionally remove uploaded video if you want
-        await supabase.storage.from('videos').remove([filePath]);
+        await supabase.storage.from('chat-images').remove([filePath]);
         return;
       }
-
-      // Send message with video URL
+      const html = `<video controls style="max-width:100%"><source src="${url}" type="${file.type}">Your browser doesn't support video.</video>`;
       await push(ref(rtdb, 'messages'), {
         name: username,
-        videoUrl: publicUrl,
+        text: html,
         createdAt: serverTimestamp()
       });
+      videoInput.value = '';
     });
 
+    // Direct Messaging button handler
+    dmBtn.addEventListener('click', () => {
+      window.location.href = 'https://githubuser102234.github.io/chatapp/directmessaging';
+    });
   </script>
 </body>
 </html>
