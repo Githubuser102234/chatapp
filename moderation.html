@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Firebase Chat</title>
+  <style>
+    /* Your existing styles here */
+  </style>
+</head>
+<body>
+
+  <!-- Direct Messaging button -->
+  <button id="dmBtn" class="dm-button">Direct messaging</button>
+
+  <div class="chat-container" id="chatApp">
+    <!-- Username editor -->
+    <div class="username-container">
+      <label for="nameEditor">Your name:</label>
+      <input type="text" id="nameEditor" placeholder="Anonymous" />
+      <button id="saveNameBtn">Save</button>
+    </div>
+
+    <!-- Chat messages + typing indicator -->
+    <div class="chat-messages" id="chat"></div>
+    <div class="typing-indicator" id="typingIndicator"></div>
+
+    <!-- Message input -->
+    <form class="chat-form" id="chatForm">
+      <input type="text" id="messageInput" placeholder="Type a message..." required autocomplete="off" />
+      <button type="submit">Send</button>
+      <button type="button" id="uploadImageBtn">📷</button>
+      <input type="file" id="imageInput" accept="image/*,video/*" style="display: none;" />
+      <button type="button" id="uploadVideoBtn">🎥</button>
+      <input type="file" id="videoInput" accept="video/*,image/*" style="display: none;" />
+    </form>
+  </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-app.js";
+    import {
+      getDatabase,
+      ref,
+      push,
+      onChildAdded,
+      set,
+      onValue,
+      remove,
+      serverTimestamp
+    } from "https://www.gstatic.com/firebasejs/11.9.1/firebase-database.js";
+
+    import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm";
+
+    // Firebase config
+    const firebaseConfig = {
+      apiKey: "AIzaSyDpbon3vVvUX_OlK20JyiVBdm2-ELeoxHE",
+      authDomain: "chatapp-d700a.firebaseapp.com",
+      projectId: "chatapp-d700a",
+      storageBucket: "chatapp-d700a.firebasestorage.app",
+      messagingSenderId: "217425204494",
+      appId: "1:217425204494:web:e3c772b8e2d839248f735f",
+      measurementId: "G-Z2WR2TPDRB"
+    };
+    const app  = initializeApp(firebaseConfig);
+    const rtdb = getDatabase(app);
+
+    // Supabase config
+    const supabase = createClient(
+      'https://zpvmdvunbkveitefxnvq.supabase.co',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpwdm1kdnVuYmt2ZWl0ZWZ4bnZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTExMzMxNzgsImV4cCI6MjA2NjcwOTE3OH0.SXnAVURqI3AAWRUn1LdQTEUgEYKwv0UEDNN3tAJ3D48'
+    );
+
+    // Sightengine API credentials (WARNING: exposed in frontend, only for private/testing use)
+    const API_USER = '190314372';
+    const API_SECRET = 'cMPbkQmWt9N9Vf7AGqDXCM3Uu2zBvkXx';
+
+    async function moderateImageUrl(imageUrl) {
+      const params = new URLSearchParams({
+        models: 'nudity-2.1,offensive-2.0,text-content,gore-2.0,violence,self-harm',
+        api_user: API_USER,
+        api_secret: API_SECRET,
+        url: imageUrl
+      });
+
+      const url = `https://api.sightengine.com/1.0/check.json?${params.toString()}`;
+
+      try {
+        const response = await fetch(url);
+        const data = await response.json();
+        console.log('Moderation result:', data);
+
+        // You can customize your safe thresholds here
+        const nuditySafe = data.nudity && data.nudity.safe >= 0.85;
+        const offensiveSafe = data.offensive && data.offensive.prob <= 0.3;
+        const goreSafe = data.gore && data.gore.prob <= 0.3;
+        const violenceSafe = data.violence && data.violence.prob <= 0.3;
+        const selfHarmSafe = data['self-harm'] && data['self-harm'].prob <= 0.3;
+
+        const isSafe = nuditySafe && offensiveSafe && goreSafe && violenceSafe && selfHarmSafe;
+        return { isSafe, data };
+
+      } catch (err) {
+        console.error('Error calling Sightengine API:', err);
+        // If API call fails, allow image by default or reject depending on your policy
+        return { isSafe: true, data: null };
+      }
+    }
+
+    // DOM elements
+    const chatEl        = document.getElementById('chat');
+    const chatForm      = document.getElementById('chatForm');
+    const msgInput      = document.getElementById('messageInput');
+    const typingEl      = document.getElementById('typingIndicator');
+    const nameEditor    = document.getElementById('nameEditor');
+    const saveBtn       = document.getElementById('saveNameBtn');
+    const uploadImgBtn  = document.getElementById('uploadImageBtn');
+    const imageInput    = document.getElementById('imageInput');
+    const uploadVidBtn  = document.getElementById('uploadVideoBtn');
+    const videoInput    = document.getElementById('videoInput');
+    const dmBtn         = document.getElementById('dmBtn');
+
+    // Load or default username
+    let username = localStorage.getItem('chat_username') || 'Anonymous';
+    nameEditor.value = username;
+
+    saveBtn.addEventListener('click', () => {
+      const n = nameEditor.value.trim() || 'Anonymous';
+      username = n;
+      localStorage.setItem('chat_username', n);
+      saveBtn.textContent = 'Saved!';
+      setTimeout(() => saveBtn.textContent = 'Save', 1000);
+    });
+
+    chatForm.addEventListener('submit', async e => {
+      e.preventDefault();
+      const text = msgInput.value.trim();
+      if (!text) return;
+      await push(ref(rtdb, 'messages'), {
+        name: username,
+        text,
+        createdAt: serverTimestamp()
+      });
+      msgInput.value = '';
+      remove(ref(rtdb, `typingStatus/${username}`));
+    });
+
+    msgInput.addEventListener('input', () => {
+      set(ref(rtdb, `typingStatus/${username}`), true);
+      clearTimeout(typingTimeout);
+      typingTimeout = setTimeout(() => {
+        remove(ref(rtdb, `typingStatus/${username}`));
+      }, 2000);
+    });
+
+    let typingTimeout;
+
+    function startChat() {
+      onChildAdded(ref(rtdb, 'messages'), snap => {
+        const data = snap.val();
+        const msgId = snap.key;
+        const div = document.createElement('div');
+        div.className = 'message';
+        div.innerHTML = `<div class="name">${data.name || 'Anonymous'}</div>${data.text}`;
+
+        // Delete button for message owner
+        if (data.name === username) {
+          const delBtn = document.createElement('button');
+          delBtn.textContent = 'Delete';
+          delBtn.style.marginLeft = '10px';
+          delBtn.addEventListener('click', () => {
+            remove(ref(rtdb, `messages/${msgId}`));
+          });
+          div.appendChild(delBtn);
+        }
+
+        chatEl.appendChild(div);
+        chatEl.scrollTop = chatEl.scrollHeight;
+      });
+
+      onValue(ref(rtdb, 'typingStatus'), snap => {
+        const status = snap.val() || {};
+        const others = Object.keys(status).filter(u => u !== username);
+        typingEl.textContent = others.length
+          ? `${others.join(', ')} typing...`
+          : '';
+      });
+    }
+
+    startChat();
+
+    // Image upload with moderation
+    uploadImgBtn.addEventListener('click', () => imageInput.click());
+    imageInput.addEventListener('change', async () => {
+      const file = imageInput.files[0];
+      if (!file) return;
+      const filePath = `${Date.now()}_${file.name}`;
+      const { data, error } = await supabase.storage
+        .from('images')
+        .upload(filePath, file);
+
+      if (error) {
+        alert('Upload failed: ' + error.message);
+        return;
+      }
+
+      // Get public URL for moderation
+      const { publicUrl, error: urlError } = supabase.storage
+        .from('images')
+        .getPublicUrl(filePath);
+
+      if (urlError) {
+        alert('Error getting public URL: ' + urlError.message);
+        return;
+      }
+
+      // Call moderation API before sending
+      const result = await moderateImageUrl(publicUrl);
+      if (!result.isSafe) {
+        alert('Image rejected by moderation for inappropriate content.');
+        // Optionally remove uploaded image if you want
+        await supabase.storage.from('images').remove([filePath]);
+        return;
+      }
+
+      // Send message with image URL
+      await push(ref(rtdb, 'messages'), {
+        name: username,
+        imageUrl: publicUrl,
+        createdAt: serverTimestamp()
+      });
+    });
+
+    // Video upload with moderation
+    uploadVidBtn.addEventListener('click', () => videoInput.click());
+    videoInput.addEventListener('change', async () => {
+      const file = videoInput.files[0];
+      if (!file) return;
+      const filePath = `${Date.now()}_${file.name}`;
+      const { data, error } = await supabase.storage
+        .from('videos')
+        .upload(filePath, file);
+
+      if (error) {
+        alert('Upload failed: ' + error.message);
+        return;
+      }
+
+      // Get public URL for moderation
+      const { publicUrl, error: urlError } = supabase.storage
+        .from('videos')
+        .getPublicUrl(filePath);
+
+      if (urlError) {
+        alert('Error getting public URL: ' + urlError.message);
+        return;
+      }
+
+      // Call moderation API before sending
+      const result = await moderateImageUrl(publicUrl);
+      if (!result.isSafe) {
+        alert('Video rejected by moderation for inappropriate content.');
+        // Optionally remove uploaded video if you want
+        await supabase.storage.from('videos').remove([filePath]);
+        return;
+      }
+
+      // Send message with video URL
+      await push(ref(rtdb, 'messages'), {
+        name: username,
+        videoUrl: publicUrl,
+        createdAt: serverTimestamp()
+      });
+    });
+
+  </script>
+</body>
+</html>
